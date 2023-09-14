@@ -6,12 +6,12 @@ class Plot:
     def __init__(self, roofs) -> None:
         self.roofs = roofs
 
-    def scatterplot_3d(self, x, y, z, c, s):
+    def scatterplot_3d(self, x, y, z, c):
         # 3D scatter plot with all points, different color for each segment in roof
         name = "scatterplot_3d"
         fig = plt.figure()
         ax = plt.axes(projection='3d')
-        ax.scatter(x, y, z, c, s)
+        ax.scatter(x, y, z, c = c/255)
         plt.show()
 
     def plot_2D(self, roof_segments):

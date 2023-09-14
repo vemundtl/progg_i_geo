@@ -10,81 +10,99 @@ from sklearn.cluster import DBSCAN
 from plot import Plot
 import matplotlib.pyplot as plt
 from descartes import PolygonPatch
+import itertools
+from tqdm import tqdm
 
-def get_coords(roof_seg, segmented_first):
+def get_coords(roof_seg):
     # Extract all points to get a nice scatter plot
 
-    if segmented_first:
-        x = list(np.concatenate([list(cloud.X) for cloud in roof_seg]).flat)
-        y = list(np.concatenate([list(cloud.Y) for cloud in roof_seg]).flat)
-        z = list(np.concatenate([list(cloud.Z) for cloud in roof_seg]).flat)
-        c = list(np.concatenate([[roof_seg.index(cloud) for i in list(cloud.X)] for cloud in roof_seg]).flat)
+    x = roof_seg.X
+    y = roof_seg.Y
+    z = roof_seg.Z
+    c = np.array([[color.red, color.green, color.blue] for color in roof_seg])
+    return x, y, z, c
 
-        # # Used to adjust the size of the scatterplot points
-        ys = np.random.randint(100, 200, len(x))
-        zs = np.random.randint(25, 150, len(y))
-        s = zs / ((ys * 0.01) ** 2)
-    else: 
-        x = roof_seg.X
-        y = roof_seg.Y
-        z = roof_seg.Z
-        c = list(np.zeros(len(roof_seg.X)))
-        ys = np.random.randint(100, 200, len(x))
-        zs = np.random.randint(25, 150, len(y))
-        s = zs / ((ys * 0.05) ** 2)
-    return x, y, z, c, s
+def get_segmented_roof_colors(las):
+    c = [[color.red, color.green, color.blue] for color in las]
+    unique_lists = set()
+
+    for inner_list in c:
+        inner_tuple = tuple(inner_list)
+
+        if inner_tuple not in unique_lists:
+            unique_lists.add(inner_tuple) 
+
+    return list(unique_lists)
 
 class Roofs:
     def __init__(self) -> None:
         self.roofs = {}
         self.plot = Plot(self)
 
+    # Punkt 1 er (roof.X, roof.Y, roof.Z) og får fargen [roof.red, roof.green, roof.blue]
+
     def create_df_all_roofs(self):
         df_all_roofs = gpd.GeoDataFrame()
+        for roof_type in self.roofs:
+            for key in self.roofs[roof_type].keys():
+                red = self.roofs[roof_type][key].red
+                green = self.roofs[roof_type][key].green
+                blue = self.roofs[roof_type][key].blue
+                X = self.roofs[roof_type][key].X
+                Y = self.roofs[roof_type][key].Y
+                Z = self.roofs[roof_type][key].Z
+                merged_data = [(x, y, z, r, g, b) for r, g, b, x, y, z in zip(red, green, blue, X, Y, Z)]
+                
+                rgb_to_label = {}
+                label_counter = 0
+                for r, g, b, x, y, z in merged_data:
+                    rgb_tuple = (r, g, b)
+                    if rgb_tuple not in rgb_to_label:
+                        rgb_to_label[rgb_tuple] = label_counter
+                        label_counter += 1
 
-        for roof in self.roofs:
-            roof_segments = [roof_segment for roof_segment in self.roofs[roof].values()]
-            df = self.alpha_shapes(roof_segments)
-            df['roof_id'] = roof
-            z_coords = [point[2] for point in list(df.iloc[0].geometry.exterior.coords)]
-            df["min_z"] = min(z_coords)
-            df_all_roofs = pd.concat([df_all_roofs, df])
+                # Create a list of labels corresponding to each point
+                labels = [rgb_to_label[(r, g, b)] for r, g, b, x, y, z in merged_data]
+
+                # Create a pandas DataFrame with the data and labels
+                df = pd.DataFrame(merged_data, columns=['X', 'Y', 'Z', 'R', 'G', 'B'])
+
+                df['Label'] = labels
+
+                grouped = df.groupby(['R', 'G', 'B'])
+                polygons_data = []
+
+                for (r, g, b), group_data in grouped:
+                    # Extract X, Y, Z values from the group
+                    points = [(x, y, z) for x, y, z in zip(group_data['X'], group_data['Y'], group_data['Z'])]
+
+                    # Create a Shapely polygon from the points
+                    polygon = Polygon(points)
+
+                    # Create a dictionary for the new DataFrame row
+                    row_data = {
+                        "roof_id": key[:-4],
+                        'Geometry': polygon,
+                        'R': r,
+                        'G': g,
+                        'B': b
+                    }
+
+                    # Append the dictionary to the list
+                    polygons_data.append(row_data)
+
+                # Create a new DataFrame from the list of dictionaries
+                polygon_df = pd.DataFrame(polygons_data)
+                df_all_roofs = pd.concat([df_all_roofs, polygon_df])
 
         df_all_roofs = df_all_roofs.reset_index(drop=True)
         self.df_all_roofs = df_all_roofs
 
-    def alpha_shapes(self, segments):
-        alpha_shape = [alphashape(seg.xyz, 0) for seg in segments]
-        list = [{'geometry': alpha_shape[i], 'classification': i} for i in range(len(alpha_shape))]
-        df = gpd.GeoDataFrame(list)
-        threshold = lambda x: 0.7 if x.area > 10 else 0.4
-        df.geometry = df.geometry.apply(lambda x: x.simplify(threshold(x), preserve_topology=False))
-        return df
-    
-    def clustering(self):
-        # Gå gjennom hvert tak, og for hvert tak lag en liste med punkter 
-
-        print(self.df_all_roofs)
-        for roof in self.df_all_roofs.roof_id.unique():
-            segments = self.df_all_roofs.loc[self.df_all_roofs["roof_id"] == roof]
-            coords = []
-
-            for i in range(len(segments)):
-                temp_coords = [coord for coord in segments.iloc[i]]
-                coords.append(temp_coords)
-            
-            # print(roof)
-            # print("__")
-            # print(self.df_all_roofs.loc[self.df_all_roofs["roof_id"] == roof])
-            break
-
-
     def run_all(self, FOLDER):
         count = 0
         folder_names = os.listdir(FOLDER)
-
         for folder in folder_names:
-            if folder != '.DS_Store' and folder != 'roof categories.jpg' and count < 100:
+            if folder != '.DS_Store' and folder != 'roof categories.jpg':
                 self.roofs[folder] = {}
                 roofs = os.listdir(f'{FOLDER}/{folder}')
                 for roof in roofs:
@@ -92,10 +110,9 @@ class Roofs:
                     las = laspy.read(f'{FULL_PATH}/{roof}')
                     # points = pd.DataFrame(las.xyz, columns=['x', 'y', 'z'])
                     self.roofs[folder][roof] = las
-                count += 1
 
         self.create_df_all_roofs()
-        self.clustering()
+        # self.clustering()
 
     def plot_result(self, type):
         match type:
@@ -103,13 +120,7 @@ class Roofs:
                 for roofs in self.roofs:
                     roof_segments = [roof_segment for roof_segment in self.roofs[roofs].values()]
                     for roof in roof_segments:
-                        print(roof)
-                        self.plot.scatterplot_3d(*get_coords(roof, False))
-                
-                # When we have the roofs segmented beforehand  
-                # for roof in self.roofs:
-                #     roof_segments = [roof_segment for roof_segment in self.roofs[roof].values()]
-                #     self.plot.scatterplot_3d(*get_coords(roof_segments, True))
+                        self.plot.scatterplot_3d(*get_coords(roof))
             case "segmented_roof_2d":
                 for roof in self.roofs:
                     roof_segments = [roof_segment for roof_segment in self.roofs[roof].values()]
@@ -121,3 +132,10 @@ if __name__ == '__main__':
     roofs.run_all(FOLDER)
     # roofs.plot_result("segmented_roof_2d")
     # roofs.plot_result("scatterplot_3d")
+
+    # Corner element - 6
+    # Flat - 1
+    # T-element - 4
+    # Hipped - 4
+    # Cross-element - 6
+    # Gabled - 2
