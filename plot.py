@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from helpers import get_coords, is_within_limit
 from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from shapely import Polygon
 
 class Plot:
     def __init__(self, roofs) -> None:
@@ -11,10 +13,12 @@ class Plot:
     def scatterplot_3d(self):
         for roofs in self.roofs.roofs:
             roof_segments = [roof_segment for roof_segment in self.roofs.roofs[roofs].values()]
-            for roof in roof_segments:
+            keys = list(self.roofs.roofs[roofs].keys())
+            for i, roof in enumerate(roof_segments):
                 x, y, z, c = get_coords(roof)
                 ax = plt.axes(projection='3d')
                 ax.scatter(x, y, z, c = c/255)
+                plt.title(keys[i])
                 plt.show()
 
     def plot_2D(self, roof_segments):
@@ -28,7 +32,8 @@ class Plot:
                     plt.plot(*poly.exterior.xy)
                 plt.show()
 
-    def plane_3D(self, roof):
+    def plane_3D(self, roof, id):
+        # funker ikke
         # https://saturncloud.io/blog/plotting-3d-plane-equations-with-python-matplotlib-a-guide/
         x = np.linspace(-10, 10, 1000)
         y = np.linspace(-10, 10, 1000)
@@ -50,6 +55,7 @@ class Plot:
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
+        plt.title(id)
         plt.show()
 
     def scatter_with_plane_3D_all(self, df_planes, ids):
@@ -76,6 +82,7 @@ class Plot:
                 ax.legend()
 
                 # Show the plot
+                plt.title(ids[count])
                 plt.show()
                 count += 1
 
@@ -111,6 +118,7 @@ class Plot:
                 ax.legend()
 
                 # Show the plot
+                plt.title()
                 plt.show()
                 count += 1
 
@@ -207,6 +215,7 @@ class Plot:
             ax.set_ylim([y_min, y_max])
             ax.set_zlim([z_min, z_max])
             count += 1
+            plt.title(id)
             plt.show()
 
     def line_scatter(self, df_lines, ids):
@@ -215,7 +224,6 @@ class Plot:
             roof_segments = [roof_segment for roof_segment in self.roofs.roofs[roofs].values()]
             for roof in roof_segments:
                 df_curr = df_lines.loc[df_lines['roof_id'] == ids[counter]]
-                print(df_curr)
                 x, y, z, c = get_coords(roof)
                 fig = plt.figure()
                 ax = fig.add_subplot(111, projection='3d')
@@ -231,7 +239,7 @@ class Plot:
                     for i in range(len(df_curr)):
                         direction = np.array(df_curr.iloc[i][3])
                         point_on_plane = df_curr.iloc[i][4]
-                        t_values = np.linspace(-10000,10000,10000)
+                        t_values = np.linspace(-10000,10000,1000)
                         intersection_points = []
 
                         # Calculate the intersection points for each value of t
@@ -242,7 +250,7 @@ class Plot:
                         # Convert the list of points to a NumPy array
                         intersection_points = np.array(intersection_points)
                         ax.plot(intersection_points[:, 0], intersection_points[:, 1], intersection_points[:, 2], color='r', linewidth=3)
-
+                        ax.scatter(df_curr.iloc[i][4][0], df_curr.iloc[i][4][1], df_curr.iloc[i][4][2], color='r', linewidth=10)
                 x_min, x_max = min(data.X), max(data.X)
                 y_min, y_max = min(data.Y), max(data.Y)
                 z_min, z_max = min(data.Z), max(data.Z)
@@ -254,8 +262,63 @@ class Plot:
                 ax.set_xlabel('X Label')
                 ax.set_ylabel('Y Label')
                 ax.set_zlabel('Z Label')
+                plt.title(ids[counter])
                 ax.legend()
                 plt.show()
+
+    def line_scatter_intersection_points(self, df_lines, ids, df_test):
+        counter = 0 
+        for roofs in self.roofs.roofs:
+            roof_segments = [roof_segment for roof_segment in self.roofs.roofs[roofs].values()]
+            for roof in roof_segments:
+                df_curr = df_lines.loc[df_lines['roof_id'] == ids[counter]]
+                closest_points = df_test.loc[df_test['roof_id'] == ids[counter]].iloc[0]['points']
+                x, y, z, c = get_coords(roof)
+                fig = plt.figure()
+                ax = fig.add_subplot(111, projection='3d')
+                ax.scatter(x, y, z, c = c/255)
+
+                names = self.roofs.roofs.keys()
+                data = None
+                for name in names:
+                    if f'{ids[counter]}.las' in self.roofs.roofs[name]:
+                        data = self.roofs.roofs[name][f'{ids[counter]}.las']
+
+                if not df_curr.empty:
+                    for i in range(len(df_curr)):
+                        direction = np.array(df_curr.iloc[i][3])
+                        point_on_plane = df_curr.iloc[i][4]
+                        t_values = np.linspace(-10000,10000,1000)
+                        intersection_points = []
+
+                        # Calculate the intersection points for each value of t
+                        for t in t_values:
+                            intersection_point = point_on_plane + t * direction
+                            intersection_points.append(intersection_point)
+
+                        # Convert the list of points to a NumPy array
+                        intersection_points = np.array(intersection_points)
+                        ax.plot(intersection_points[:, 0], intersection_points[:, 1], intersection_points[:, 2], color='r', linewidth=3)
+
+                    for point in closest_points:
+                        ax.scatter(point[0], point[1], point[2], color='b', linewidth=10)
+                x_min, x_max = min(data.X), max(data.X)
+                y_min, y_max = min(data.Y), max(data.Y)
+                z_min, z_max = min(data.Z), max(data.Z)
+                ax.set_xlim([x_min, x_max])
+                ax.set_ylim([y_min, y_max])
+                ax.set_zlim([z_min, z_max])
+
+                ax.set_xlabel('X Label')
+                ax.set_ylabel('Y Label')
+                ax.set_zlabel('Z Label')
+                plt.title(ids[counter])
+                plt.show()
+                counter += 1
+
+# if __name__ == "__main__":
+#     plot = Plot([])
+#     plot.test()
 
     #{'corner_element': 
         # {'182448567.las': <LasData(1.2, point fmt: <PointFormat(3, 0 bytes of extra dims)>, 3176 points, 0 vlrs)>, 
