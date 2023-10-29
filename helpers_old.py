@@ -75,32 +75,31 @@ def is_within_limit(x_min, x_max, y_min, y_max, z_min, z_max, point):
     return (x_within_bounds and y_within_bounds and z_within_bounds)
 
 def find_highest_lowest_z_coord_globally(liste):
-    max_z = float('-inf')  # Start with negative infinity to ensure any z-coordinate is higher
-    min_z = float('inf')  # Start with negative infinity to ensure any z-coordinate is higher
+    max_z = float('-inf') 
+    min_z = float('inf')  
 
     for plane in liste:
         temp_max, temp_min = find_highest_lowest_z_coord(plane)
         if temp_max > max_z:
-            max_z = temp_max  # Update the maximum z-coordinate
+            max_z = temp_max 
         if temp_min < min_z:
-            min_z = temp_min  # Update the maximum z-coordinate
+            min_z = temp_min 
     return min_z, max_z
 
 def find_highest_lowest_z_coord(liste):
-    max_z = float('-inf')  # Start with negative infinity to ensure any z-coordinate is higher
-    min_z = float('inf')  # Start with negative infinity to ensure any z-coordinate is higher
+    max_z = float('-inf')
+    min_z = float('inf') 
     max_z_index = None
     min_z_index = None
 
-    # Iterate through the list of coordinates
     for index, coord in enumerate(liste):
-        x, y, z = coord  # Unpack the coordinates
+        x, y, z = coord  
         if z > max_z:
-            max_z = z  # Update the maximum z-coordinate
-            max_z_index = index  # Update the index of the maximum z-coordinate
+            max_z = z  
+            max_z_index = index  
         if z < min_z:
-            min_z = z  # Update the maximum z-coordinate
-            min_z_index = index  # Update the index of the maximum z-coordinate
+            min_z = z  
+            min_z_index = index  
 
     return liste[max_z_index], liste[min_z_index]
 
@@ -141,7 +140,6 @@ def closest_dist_lines(line1, line2, min_z, max_z):
     clampB0=False
     clampB1=False
 
-    # Calculate denomitator
     A = a1 - a0
     B = b1 - b0
     magA = np.linalg.norm(A)
@@ -152,10 +150,7 @@ def closest_dist_lines(line1, line2, min_z, max_z):
     
     cross = np.cross(_A, _B)
     denom = np.linalg.norm(cross)**2
-    
-    # If lines are parallel (denom=0) test if lines overlap.
-    # If they don't overlap then there is a closest point solution.
-    # If they do overlap, there are infinite closest positions, but there is a closest distance
+
     if not denom:
         d0 = np.dot(_A,(b0-a0))
         
@@ -177,8 +172,7 @@ def closest_dist_lines(line1, line2, min_z, max_z):
                     if np.absolute(d0) < np.absolute(d1):
                         return a1,b0,np.linalg.norm(a1-b0)
                     return a1,b1,np.linalg.norm(a1-b1)
-                
-                
+
         # Segments overlap, return distance between parallel segments
         return None,None,np.linalg.norm(((d0*_A)+a0)-b0)
         
@@ -408,15 +402,12 @@ def find_main_gable_params(roof, seg_num1, seg_num2, id, gable, sub=False):
 def find_closest_points(points):
     if len(points) == 2:
         return [0,1]
-    point1, point2, point3 = points  # Unpack the list
+    point1, point2, point3 = points 
 
-    # Calculate pairwise distances
     distance12 = check_distance(point1, point2)
     distance13 = check_distance(point1, point3)
     distance23 = check_distance(point2, point3)
 
-
-    # Find the two points with the shortest distance
     if distance12 <= distance13 and distance12 <= distance23:
         index1 = 0
         index2 = 1
@@ -430,31 +421,23 @@ def find_closest_points(points):
     return [index1, index2]
 
 def find_upper_roof_points(roof):
-    # Extract the coordinates of the polygon's exterior ring
     upper_points = []
 
     for i in range(len(roof)):
         polygon = roof["geometry"].iloc[i]
         exterior_coords = list(polygon.exterior.coords)
 
-        # Find the lowest Z coordinate (height)
         lowest_z = min(p[2] for p in exterior_coords)
-
-        # Initialize a list to store upper points
-
-        # Iterate through the exterior coordinates
         for coord in exterior_coords:
-            # Check if the Z coordinate is more than 1 unit above the lowest Z
             if abs(coord[2] - lowest_z) > 1:
-                # Check if the point already exists in the upper points list
                 if coord not in upper_points:
                     upper_points.append(coord)
 
     return upper_points
 
 def find_global_min_max_z(df):
-    max_z = float('-inf')  # Start with negative infinity to ensure any z-coordinate is higher
-    min_z = float('inf')  # Start with negative infinity to ensure any z-coordinate is higher
+    max_z = float('-inf') 
+    min_z = float('inf')  
     max_z_index = None
     min_z_index = None
 
@@ -483,110 +466,47 @@ def update_polygon_points_with_footprint(curr_roof_plane, roof_type, curr_roof_p
             if min_z < intersection_z < max_z:
                 new_point = [x, y, intersection_z]
                 footprint_points.append(new_point)
-                
-        dist = []
-        # distances = []
-        checked = set() 
-        for i in range(len(footprint_points)):
-            for j in range(len(footprint_points)):
-                if (i,j) not in checked and (j,i) not in checked and i != j:
-                    checked.add((i,j))
-                    checked.add((j,i))
-                    d = check_distance(footprint_points[i], footprint_points[j])
-                    if d < 0.2:
-                        # distances.append(d)
-                        dist.append(i)
-        
-        if len(dist) > 0:
-            dist.sort(reverse=True)
-            for index in dist:
-                footprint_points.pop(index)
+
     return footprint_points
 
-def visualize_polygons3(multi, id, roof, footprint=None):
+def visualize_polygons(multi, id, roof, footprint=None):
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
-    # Iterate through the individual polygons in the MultiPolygon and plot each one
     colors = ['red', 'blue', 'green', 'orange', 'brown', 'yellow', 'black',"lime", "magenta", "purple", "navy", "cyan", "thistle", "indigo", "steelblue", "wheat", "tan", "darkorange", "grey", "maroon", "sienna", 'red', 'blue', 'green', 'orange', 'brown', 'yellow', 'black',"lime", "magenta", "purple", "navy", "cyan", "thistle", "indigo", "steelblue", "wheat", "tan", "darkorange", "grey", "maroon", "sienna", 'red', 'blue', 'green', 'orange', 'brown', 'yellow', 'black',"lime", "magenta", "purple", "navy", "cyan", "thistle", "indigo", "steelblue", "wheat", "tan", "darkorange", "grey", "maroon", "sienna"]
     for i, poly in enumerate(multi):
         x, y, z = zip(*poly.exterior.coords)
-        ax.plot(x, y, z, color=colors[i], alpha=0.7)
+        ax.plot(x, y, z, color=colors[2], alpha=0.7)
 
     for poly in roof:
         x,y,z = zip(*poly.exterior.coords)
-        ax.plot(x, y, z, color=colors[3], alpha=0.7)
+        ax.plot(x, y, z, color=colors[i], alpha=0.7)
 
     if footprint is not None:
         for point in footprint:
             x, y, z = point
-            ax.scatter(x, y, z, color=colors[i], alpha=0.7)
+            ax.scatter(x, y, z, color=colors[2], alpha=0.7)
 
 
     ax.set_xlabel('X-axis')
     ax.set_ylabel('Y-axis')
     ax.set_zlabel('Z-axis')
     plt.title(id)
-    # Show the 3D plot
     plt.show()
 
 def sort_3d_points_around_center(list_of_points):
-    # Convert the list of points to a numpy array
     intersection_points = np.array(list_of_points)
 
-    # Calculate the centroid of the points
     center = np.mean(intersection_points, axis=0)
 
-    # Define a custom sorting key function that considers the relative positions of the points
     def sorting_key(point):
-        # Calculate the vector from the center to the point
         vector = point - center
 
-        # Calculate the azimuthal angle (angle in the XY plane) for the vector
         azimuthal_angle = np.arctan2(vector[1], vector[0])
-
-        # Calculate the polar angle (angle from the XY plane to the vector)
         polar_angle = np.arctan2(vector[2], np.sqrt(vector[0]**2 + vector[1]**2))
 
         return (azimuthal_angle, polar_angle)
 
-    # Sort the points using the custom sorting key
     sorted_points = sorted(intersection_points, key=sorting_key)
 
     return sorted_points
-
-def visualize_things2(polygon, footprint_points, roof, upper_to_use, id):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Iterate through the individual polygons in the MultiPolygon and plot each one
-    colors = ['red', 'blue', 'green', 'orange', 'brown', 'yellow', 'black',"lime", "magenta", "purple", "navy", "cyan", "thistle", "indigo", "steelblue", "wheat", "tan", "darkorange", "grey", "maroon", "sienna"]
-    for point in footprint_points:
-        x, y, z = point
-        ax.scatter(x, y, z, color=colors[0], alpha=0.7)
-    
-    for point in footprint_points:
-        x, y, z = point
-        ax.scatter(x, y, z-5, color=colors[1], alpha=0.7)
-
-    for i, poly in enumerate(polygon):
-        x,y,z = zip(*poly.exterior.coords)
-        ax.plot(x, y, z, color=colors[2+i], alpha=0.7)
-
-    # for poly in roof:
-    #     x,y,z = zip(*poly.exterior.coords)
-    #     ax.plot(x, y, z, color=colors[3], alpha=0.7)
-
-    for point in upper_to_use:
-        x, y, z = point
-        ax.scatter(x, y, z, color=colors[4], alpha=0.7)
-    # Set axis limits and labels
-    # ax.set_xlim(0, 3)
-    # ax.set_ylim(0, 3)
-    # ax.set_zlim(0, 1)  # Adjust the z-axis limits as needed
-    ax.set_xlabel('X-axis')
-    ax.set_ylabel('Y-axis')
-    ax.set_zlabel('Z-axis')
-    plt.title(id)
-    # Show the 3D plot
-    plt.show()
