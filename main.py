@@ -14,7 +14,6 @@ class Roofs:
         self.roofs = {}
         self.plot = Plot(self)
 
-    # Punkt 1 fra las-fila er (roof.X[0], roof.Y[0], roof.Z[0]) og får fargen [roof.red[0], roof.green[0], roof.blue[0]]
     def create_df_all_roofs(self):
         """Creates a dataframe for each segment of each roof """
         df_all_roofs = pd.DataFrame()
@@ -41,12 +40,12 @@ class Roofs:
                 for (r, g, b), group_data in grouped:
                     points = [Point(x, y, z) for x, y, z in zip(group_data['X'], group_data['Y'], group_data['Z'])]
                     polygon = Polygon(points)
-                    # polygon = MultiPoint(points).convex_hull
                     row_data = {"roof_id": key, 'geometry': polygon, 'R': r, 'G': g, 'B': b}
                     polygons_data.append(row_data)
 
                 polygon_df = pd.DataFrame(polygons_data)
                 polygon_df['segment'] = polygon_df.groupby(['R', 'G', 'B']).ngroup()
+                polygon_df["roof_type"] = roof_type
                 grouped = polygon_df.groupby(['roof_id', 'segment'])
                 df_all_roofs = pd.concat([df_all_roofs, polygon_df])
 
@@ -67,7 +66,8 @@ class Roofs:
                 "segment": self.df_all_roofs.iloc[i][5],
                 "plane_param": [sol],
                 "max_z_coordinate": [max_z],
-                "min_z_coordinate": [min_z]
+                "min_z_coordinate": [min_z],
+                "roof_type": self.df_all_roofs.iloc[i]["roof_type"]
             })
             df = gpd.GeoDataFrame(df_pd)
 
@@ -77,7 +77,7 @@ class Roofs:
         self.df_planes = planes
 
     def find_plane_intersections(self):
-        """Finds inter sections between each plane, creating lines on the intersection point"""
+        """Finds intersections between each plane, creating lines on the intersection point"""
         df_lines = gpd.GeoDataFrame()
         for id in self.roof_ids:
             df = self.df_planes.loc[self.df_planes['roof_id'] == id]
@@ -104,7 +104,7 @@ class Roofs:
                             direction_vector = np.cross(normal_vector1, normal_vector2)
 
                             direction_vector /= np.linalg.norm(direction_vector)
-
+                            
                             df_pd = pd.DataFrame({
                                 "roof_id": id,
                                 "segment_number1": segment_number1_counter,
@@ -143,7 +143,8 @@ class Roofs:
                                 points.append(closest_point[0])
             df = pd.DataFrame({
                 "roof_id": id,
-                "points": [points]
+                "points": [points], 
+                "roof_type": self.df_all_roofs.loc[self.df_all_roofs["roof_id"] == id].iloc[0]["roof_type"]
                 })
             intersection_points = pd.concat([intersection_points, df])
 
@@ -151,8 +152,6 @@ class Roofs:
         for idx, row in intersection_points.iterrows():
             curr_points = row[1]
             checked = set()
-            # Checks wheter there are multiple points within a certain range which 
-            # are supposed to be the same intersection point
             for i in range(len(curr_points)):
                 for j in range(len(curr_points)):
                     if (i, j) not in checked and (j, i) not in checked and i != j:
@@ -168,14 +167,11 @@ class Roofs:
                             intersection_points.at[idx, "points"] = new_point_for_curr
             updated_curr_points = intersection_points.iloc[idx]['points']
             
-            # For cross element, which only is supposed to have one intersection point
-            if idx == 8 or idx == 9:
+            if row["roof_type"] == "cross_element":
                 avg_point = np.mean(np.array(updated_curr_points), axis = 0)
                 intersection_points.iloc[idx]['points'] = [avg_point]
             elif len(updated_curr_points) > 1:
-                # For T-elements which have low t-element, and there shouldn't be more than 1 intersection point 
-                # It drops the highest z-value intersection points 
-                if (idx == 4 or idx == 5):
+                if (row["roof_type"] == "t-element"):
                     lowest_z_point = None
                     lowest_z_value = float('inf')
                     for point in updated_curr_points: 
@@ -185,7 +181,6 @@ class Roofs:
                             lowest_z_point = point
 
                     intersection_points.at[idx, 'points'] = [lowest_z_point]
-                # For all other roofs, the top z-value of the intersection point is set to the same
                 else:
                     updated_curr_points = np.array(updated_curr_points)
                     average_z = np.mean(updated_curr_points[:, 2])
@@ -256,8 +251,8 @@ class Roofs:
 
                         points_on_plane_min_z.append([point, row2[1], row2[2]])
 
-            # HIPPED, CORNER_ELEMENT
-            if id == '182464406' or id == "182448567" or id == "182282537" or id == "300429640":
+            roof_type = self.df_all_roofs.loc[self.df_all_roofs["roof_id"] == id]["roof_type"].iloc[0]
+            if roof_type == "hipped" or roof_type == "corner_element":
                 roof_polygons = []
                 main_sub_gable = []
                 for idx, row in curr_roof.iterrows():
@@ -276,116 +271,92 @@ class Roofs:
 
                 polygons_final.append(roof_polygons)
             
-            # GABLED
-            if id == "182338605" or id == "10472350":
+            if roof_type == "gabled":
                 roof_polygons = [None for _ in range(len(self.df_planes.loc[self.df_planes["roof_id"] == id]))]
                 main_sub_gable = [None for _ in range(len(self.df_planes.loc[self.df_planes["roof_id"] == id]))]
 
-                plane_param1, plane_param2, main_tip1, main_tip2, main_ips1, main_ips2, minx_main0, maxx_main0, minz_main0, minz_main1, maxx_main1, _ = find_main_gable_params(self, 0, 1, id, [0])
+                plane_param1, plane_param2, p1, p2, isp1, isp2, _, _, _, _, _, _ = find_main_gable_params(self, 0, 1, id, [0])
 
-                non_outlier1_main = find_closest_points(main_ips1)
-                non_outlier2_main = find_closest_points(main_ips2)
+                non_outlier1_main = find_closest_points(isp1)
+                non_outlier2_main = find_closest_points(isp2)
 
-                roof_polygons[main_gable[0]] = MultiPoint(sort_points_clockwise([main_tip1, main_tip2, main_ips1[non_outlier2_main[0]], main_ips2[non_outlier1_main[0]]])).convex_hull
-                roof_polygons[main_gable[1]] = MultiPoint(sort_points_clockwise([main_tip1, main_tip2, main_ips1[non_outlier2_main[1]], main_ips2[non_outlier1_main[1]]])).convex_hull
+                roof_polygons[main_gable[0]] = MultiPoint(sort_points_clockwise([p1, p2, isp1[non_outlier2_main[0]], isp2[non_outlier1_main[0]]])).convex_hull
+                roof_polygons[main_gable[1]] = MultiPoint(sort_points_clockwise([p1, p2, isp1[non_outlier2_main[1]], isp2[non_outlier1_main[1]]])).convex_hull
                 polygons_final.append(roof_polygons)
                 main_sub_gable[0] = True
                 main_sub_gable[1] = True
 
-            # T-ELEMENT
-            if id == "10498821" or id == "10477107":
+            if roof_type == "t-element":
                 df = self.df_lines.loc[(self.df_lines['roof_id'] == id)] 
                 main_gable, sub_gable = get_main_and_sub_gables(df)
                 roof_polygons = [None for _ in range(len(self.df_planes.loc[self.df_planes["roof_id"] == id]))]
                 main_sub_gable = [None for _ in range(len(self.df_planes.loc[self.df_planes["roof_id"] == id]))]
 
-                plane_param1, plane_param2, main_tip1, main_tip2, main_ips1, main_ips2, minx_main0, maxx_main0, minz_main0, minz_main1, maxx_main1, _ = find_main_gable_params(self, main_gable[0], main_gable[1], id, main_gable)
+                plane_param1, plane_param2, p1, p2, isp1, isp2, min_x, max_x, _, _, max_x_1, _ = find_main_gable_params(self, main_gable[0], main_gable[1], id, main_gable)
                 
-                non_outlier1_main = find_closest_points(main_ips1)
-                non_outlier2_main = find_closest_points(main_ips2)
+                non_outlier1_main = find_closest_points(isp1)
+                non_outlier2_main = find_closest_points(isp2)
 
-                roof_polygons[main_gable[0]] = MultiPoint(sort_points_clockwise([main_tip1, main_tip2, main_ips1[non_outlier2_main[0]], main_ips2[non_outlier1_main[0]]])).convex_hull
-                roof_polygons[main_gable[1]] = MultiPoint(sort_points_clockwise([main_tip1, main_tip2, main_ips1[non_outlier2_main[1]], main_ips2[non_outlier1_main[1]]])).convex_hull
+                roof_polygons[main_gable[0]] = MultiPoint(sort_points_clockwise([p1, p2, isp1[non_outlier2_main[0]], isp2[non_outlier1_main[0]]])).convex_hull
+                roof_polygons[main_gable[1]] = MultiPoint(sort_points_clockwise([p1, p2, isp1[non_outlier2_main[1]], isp2[non_outlier1_main[1]]])).convex_hull
                 main_sub_gable[main_gable[0]] = True
                 main_sub_gable[main_gable[1]] = True
-                plane1_param_sub, plane2_param_sub, main_tip1_sub, main_tip2_sub, main_ips1_sub, main_ips2_sub, minx_main0_sub, maxx_main0_sub, minz_main0_sub, minz_main1_sub, maxx_main1_sub, minxx_main1_sub = find_main_gable_params(self, sub_gable[0], sub_gable[1], id, main_gable)
+                plane1_param_sub, plane2_param_sub, _, _ , _, _ , min_x_sub, max_x_sub, _, _, _, min_x_sub_1 = find_main_gable_params(self, sub_gable[0], sub_gable[1], id, main_gable)
 
-                closest_main_gable = main_gable[1] if check_distance(maxx_main0, maxx_main0_sub) > check_distance(maxx_main1, maxx_main0_sub) else main_gable[0]
-                sub_seg_sides = [0, 1] if check_distance(minx_main0_sub, minx_main0) < check_distance(minxx_main1_sub, minx_main0) else [1, 0]
+                closest_main_gable = main_gable[1] if check_distance(max_x, max_x_sub) > check_distance(max_x_1, max_x_sub) else main_gable[0]
+                seg_to_use = [0, 1] if check_distance(min_x_sub, min_x) < check_distance(min_x_sub_1, min_x) else [1, 0]
 
-                sub_tip1, sub_ips1, sub_dvs1 = find_intersections_for_gabled(
-                    plane1_param_sub,
-                    plane2_param_sub,
-                    plane_param1 if closest_main_gable == main_gable[1] else plane_param1,
-                    self.df_planes.loc[(self.df_planes['roof_id'] == id) & (self.df_planes['segment'] == sub_gable[0])].iloc[0][4][2]
-                )
+                p1_sub, ips1_sub, dir_vec_sub = find_intersections_for_gabled(plane1_param_sub, plane2_param_sub, plane_param1 if closest_main_gable == main_gable[1] else plane_param1, self.df_planes.loc[(self.df_planes['roof_id'] == id) & (self.df_planes['segment'] == sub_gable[0])].iloc[0][4][2])
 
-                edge_point = minx_main0_sub if check_distance(minx_main0_sub, sub_tip1) > check_distance(maxx_main0_sub, sub_tip1) else maxx_main0_sub
-                edge_point_plane = [sub_dvs1[0][0], sub_dvs1[0][1], 0, -sub_dvs1[0][0]*edge_point[0] - sub_dvs1[0][1]*edge_point[1]]
+                edge_point = min_x_sub if check_distance(min_x_sub, p1_sub) > check_distance(max_x_sub, p1_sub) else max_x_sub
+                edge_point_plane = [dir_vec_sub[0][0], dir_vec_sub[0][1], 0, -dir_vec_sub[0][0]*edge_point[0] - dir_vec_sub[0][1]*edge_point[1]]
 
-                sub_tip2, sub_ips2, sub_dvs2 = find_intersections_for_gabled(
-                    plane1_param_sub,
-                    plane2_param_sub,
-                    edge_point_plane,
-                    self.df_planes.loc[(self.df_planes['roof_id'] == id) & (self.df_planes['segment'] == sub_gable[0])].iloc[0][4][2]
-                )
+                p2_sub, ips2_sub, _ = find_intersections_for_gabled(plane1_param_sub, plane2_param_sub, edge_point_plane, self.df_planes.loc[(self.df_planes['roof_id'] == id) & (self.df_planes['segment'] == sub_gable[0])].iloc[0][4][2])
 
-                non_outlier1 = find_closest_points(sub_ips1)
-                non_outlier2 = find_closest_points(sub_ips2)
+                non_outlier1 = find_closest_points(ips1_sub)
+                non_outlier2 = find_closest_points(ips2_sub)
 
-                roof_polygons[sub_gable[sub_seg_sides[1]]] = MultiPoint(sort_points_clockwise([sub_tip1, sub_tip2, sub_ips1[non_outlier1[0]], sub_ips2[non_outlier2[0]]])).convex_hull
-                roof_polygons[sub_gable[sub_seg_sides[0]]] = MultiPoint(sort_points_clockwise([sub_tip1, sub_tip2, sub_ips1[non_outlier1[1]], sub_ips2[non_outlier2[1]]])).convex_hull
-                main_sub_gable[sub_gable[sub_seg_sides[1]]] = False
-                main_sub_gable[sub_gable[sub_seg_sides[0]]] = False
+                roof_polygons[sub_gable[seg_to_use[1]]] = MultiPoint(sort_points_clockwise([p1_sub, p2_sub, ips1_sub[non_outlier1[0]], ips2_sub[non_outlier2[0]]])).convex_hull
+                roof_polygons[sub_gable[seg_to_use[0]]] = MultiPoint(sort_points_clockwise([p1_sub, p2_sub, ips1_sub[non_outlier1[1]], ips2_sub[non_outlier2[1]]])).convex_hull
+                main_sub_gable[sub_gable[seg_to_use[1]]] = False
+                main_sub_gable[sub_gable[seg_to_use[0]]] = False
                 polygons_final.append(roof_polygons)
 
-            # CROSS
-            if id == "182448729" or id == "21088358":
+            if roof_type == "cross_element":
                 roof_polygons = [None for _ in range(len(self.df_planes.loc[self.df_planes["roof_id"] == id]))]
                 main_sub_gable = [None for _ in range(len(self.df_planes.loc[self.df_planes["roof_id"] == id]))]
 
                 main_gable, sub_gable = get_main_and_sub_gables(self.df_lines.loc[(self.df_lines['roof_id'] == id)], True)
-                plane_param1, plane_param2, main_tip1, main_tip2, main_ips1, main_ips2, minx_main0, maxx_main0, minz_main0, minz_main1, maxx_main1, _ = find_main_gable_params(self, main_gable[0], main_gable[1], id, main_gable)
-                roof_polygons[main_gable[0]] = MultiPoint(sort_points_clockwise([main_tip1, main_tip2, main_ips1[0], main_ips2[0]])).convex_hull
-                roof_polygons[main_gable[1]] = MultiPoint(sort_points_clockwise([main_tip1, main_tip2, main_ips1[1], main_ips2[1]])).convex_hull
+                plane_param1, plane_param2, p1, p2, isp1, isp2, min_x, max_x, _, _, max_x_1, _ = find_main_gable_params(self, main_gable[0], main_gable[1], id, main_gable)
+                roof_polygons[main_gable[0]] = MultiPoint(sort_points_clockwise([p1, p2, isp1[0], isp2[0]])).convex_hull
+                roof_polygons[main_gable[1]] = MultiPoint(sort_points_clockwise([p1, p2, isp1[1], isp2[1]])).convex_hull
                 main_sub_gable[main_gable[0]] = True
                 main_sub_gable[main_gable[1]] = True
                 
                 for sub in sub_gable:
-                    plane_param1_sub, plane_param2_sub, _, _, _, _, minx_main0_sub, maxx_main0_sub, minz_main0_sub, minz_main1_sub, maxx_main1_sub, minx_main1_sub = find_main_gable_params(self, sub[0], sub[1], id, sub)
+                    plane_param1_sub, plane_param2_sub, _, _, _, _, min_x_sub, max_x_sub, _, _, _, minx_main1_sub = find_main_gable_params(self, sub[0], sub[1], id, sub)
 
-                    closest_main_gable = main_gable[1] if check_distance(maxx_main0, maxx_main0_sub) > check_distance(maxx_main1, maxx_main0_sub) else main_gable[0]
-                    sub_seg_sides = [0, 1] if check_distance(minx_main0_sub, minx_main0) < check_distance(minx_main1_sub, minx_main0) else [1, 0]
+                    closest_main_gable = main_gable[1] if check_distance(max_x, max_x_sub) > check_distance(max_x_1, max_x_sub) else main_gable[0]
+                    seg_to_use = [0, 1] if check_distance(min_x_sub, min_x) < check_distance(minx_main1_sub, min_x) else [1, 0]
 
-                    sub_tip1, sub_ips1, sub_dvs1 = find_intersections_for_gabled(
-                        plane_param1_sub,
-                        plane_param2_sub,
-                        plane_param2 if closest_main_gable == main_gable[1] else plane_param1,
-                        self.df_planes.loc[(self.df_planes['roof_id'] == id) & (self.df_planes['segment'] == sub[0])].iloc[0][4][2]
-                    )
+                    p1_sub, ips1_sub, dir_vec_sub = find_intersections_for_gabled(plane_param1_sub, plane_param2_sub, plane_param2 if closest_main_gable == main_gable[1] else plane_param1, self.df_planes.loc[(self.df_planes['roof_id'] == id) & (self.df_planes['segment'] == sub[0])].iloc[0][4][2] )
                     
-                    edge_point = minx_main0_sub if check_distance(minx_main0_sub, sub_tip1) > check_distance(maxx_main0_sub, sub_tip1) else maxx_main0_sub
-                    edge_point_plane = [sub_dvs1[0][0], sub_dvs1[0][1], 0, -sub_dvs1[0][0]*edge_point[0] - sub_dvs1[0][1]*edge_point[1]]
+                    ep = min_x_sub if check_distance(min_x_sub, p1_sub) > check_distance(max_x_sub, p1_sub) else max_x_sub
+                    ep_plane = [dir_vec_sub[0][0], dir_vec_sub[0][1], 0, -dir_vec_sub[0][0]*ep[0] - dir_vec_sub[0][1]*ep[1]]
 
-                    sub_tip2, sub_ips2, sub_dvs2 = find_intersections_for_gabled(
-                        plane_param1_sub,
-                        plane_param2_sub,
-                        edge_point_plane,
-                        self.df_planes.loc[(self.df_planes['roof_id'] == id) & (self.df_planes['segment'] == sub[0])].iloc[0][4][2]
-                    )
+                    p2_sub, ips2_sub, _ = find_intersections_for_gabled(plane_param1_sub, plane_param2_sub, ep_plane, self.df_planes.loc[(self.df_planes['roof_id'] == id) & (self.df_planes['segment'] == sub[0])].iloc[0][4][2] )
 
-                    non_outlier1 = find_closest_points(sub_ips1)
-                    non_outlier2 = find_closest_points(sub_ips2)
+                    non_outlier1 = find_closest_points(ips1_sub)
+                    non_outlier2 = find_closest_points(ips2_sub)
 
-                    roof_polygons[sub[sub_seg_sides[1]]] = MultiPoint(sort_points_clockwise([sub_tip1, sub_tip2, sub_ips1[non_outlier1[0]], sub_ips2[non_outlier2[0]]])).convex_hull
-                    roof_polygons[sub[sub_seg_sides[0]]] = MultiPoint(sort_points_clockwise([sub_tip1, sub_tip2, sub_ips1[non_outlier1[1]], sub_ips2[non_outlier2[1]]])).convex_hull
-                    main_sub_gable[sub[sub_seg_sides[1]]] = False
-                    main_sub_gable[sub[sub_seg_sides[0]]] = False
+                    roof_polygons[sub[seg_to_use[1]]] = MultiPoint(sort_points_clockwise([p1_sub, p2_sub, ips1_sub[non_outlier1[0]], ips2_sub[non_outlier2[0]]])).convex_hull
+                    roof_polygons[sub[seg_to_use[0]]] = MultiPoint(sort_points_clockwise([p1_sub, p2_sub, ips1_sub[non_outlier1[1]], ips2_sub[non_outlier2[1]]])).convex_hull
+                    main_sub_gable[sub[seg_to_use[1]]] = False
+                    main_sub_gable[sub[seg_to_use[0]]] = False
 
                 polygons_final.append(roof_polygons)
 
-            # FLAT 
-            if id == "182341061" or id == '300557684':
+            if roof_type == "flat":
                 main_sub_gable = [False]
 
                 plane1_coords = self.df_all_roofs.loc[(self.df_all_roofs['roof_id'] == id) & (self.df_all_roofs['segment'] == 0)].iloc[0][1]
@@ -396,23 +367,23 @@ class Roofs:
                 y_coordinates = [point[1] for point in plane1_coords.exterior.coords]
                 z_coordinates = [point[2] for point in plane1_coords.exterior.coords]
 
-                dv1 = dv1 = self.df_planes.loc[self.df_planes["roof_id"] == id].iloc[0][2][:3]
+                dir_vec1 = self.df_planes.loc[self.df_planes["roof_id"] == id].iloc[0][2][:3]
 
-                dv2 = np.cross(dv1, [0, 0, 1])
+                dir_vec2 = np.cross(dir_vec1, [0, 0, 1])
 
-                p1, p2, p3, p4, _, _ = find_min_max_values(x_coordinates, y_coordinates, z_coordinates)
+                p1, p3, _ , p2, p4, _ = find_min_max_values(x_coordinates, y_coordinates, z_coordinates)
 
-                edge_plane_1 = [dv1[0], dv1[1], 0, -dv1[0]*p3[0]-dv1[1]*p3[1]]
-                edge_plane_2 = [dv1[0], dv1[1], 0, -dv1[0]*p4[0]-dv1[1]*p4[1]]
-                edge_plane_3 = [dv2[0], dv2[1], 0, -dv2[0]*p1[0]-dv2[1]*p1[1]]
-                edge_plane_4 = [dv2[0], dv2[1], 0, -dv2[0]*p2[0]-dv2[1]*p2[1]]
+                edge_plane_1 = [dir_vec1[0], dir_vec1[1], 0, -dir_vec1[0]*p3[0]-dir_vec1[1]*p3[1]]
+                edge_plane_2 = [dir_vec1[0], dir_vec1[1], 0, -dir_vec1[0]*p4[0]-dir_vec1[1]*p4[1]]
+                edge_plane_3 = [dir_vec2[0], dir_vec2[1], 0, -dir_vec2[0]*p1[0]-dir_vec2[1]*p1[1]]
+                edge_plane_4 = [dir_vec2[0], dir_vec2[1], 0, -dir_vec2[0]*p2[0]-dir_vec2[1]*p2[1]]
 
-                tip1, _, _ = find_flat_roof_points(plane1_param, edge_plane_1, edge_plane_3)
-                tip2, _, _ = find_flat_roof_points(plane1_param, edge_plane_1, edge_plane_4)
-                tip3, _, _ = find_flat_roof_points(plane1_param, edge_plane_2, edge_plane_3)
-                tip4, _, _ = find_flat_roof_points(plane1_param, edge_plane_2, edge_plane_4)
+                p1, _, _ = find_flat_roof_points(plane1_param, edge_plane_1, edge_plane_3)
+                p2, _, _ = find_flat_roof_points(plane1_param, edge_plane_1, edge_plane_4)
+                p3, _, _ = find_flat_roof_points(plane1_param, edge_plane_2, edge_plane_3)
+                p4, _, _ = find_flat_roof_points(plane1_param, edge_plane_2, edge_plane_4)
 
-                res = MultiPoint(sort_points_clockwise([tip1, tip2, tip3, tip4])).convex_hull
+                res = MultiPoint(sort_points_clockwise([p1, p2, p3, p4])).convex_hull
                 polygons_final.append([res])
 
             for i, p in enumerate(polygons_final[0]):
@@ -430,7 +401,6 @@ class Roofs:
                 "geometry": [MultiPolygon(polygons_final[0])]
             })
             df_polygons_roof = pd.concat([df_polygons_roof, df])
-
         
         df_polygons_roof = df_polygons_roof.reset_index(drop=True)
         df_polygons = df_polygons.reset_index(drop=True)
@@ -438,18 +408,6 @@ class Roofs:
         self.df_polygons = gpd.GeoDataFrame(df_polygons)
 
     def merge_buildings_for_roofs_with_multiple_buildings(self, buildings, roofs_with_buildings, roofs_with_several_buildings):
-        """
-        Merge buildings when a roof has multiple associated buildings.
-        
-        Args:
-            buildings: GeoDataFrame of buildings
-            roofs_with_buildings: GeoDataFrame of roofs with associated buildings
-            roofs_with_several_buildings: List of roof IDs with multiple associated buildings
-        
-        Returns:
-            buildings: GeoDataFrame with merged buildings
-        """
-        # Select roofs with multiple associated buildings and sort by roof_id
         roofs_several_buildings = roofs_with_buildings.query("roof_id in @roofs_with_several_buildings").sort_values(by=["roof_id", "classification", "index_right"])
         
         for roof in roofs_several_buildings.roof_id.unique():
@@ -492,21 +450,12 @@ class Roofs:
             self.df_footprints.loc[self.df_footprints["roof_id"] == matched_roof_id, "footprint"] = footprint_geometry
 
     def match_footprints(self):
-        # FLAT - 182341061 fucka punktsky 
-        # FLAT - 300557684 må endre strukturen til polygonet siden det ikke har alle punktene 
-        # T-ELEMENT - 10477107 har et dobbeltpunkt
-        # GABLED - 10472350 har ikke riktig struktur på sidene liksom, må legge til punkter her også 
         ids_points = {"corner_element": 6, "cross_element": 12, "flat": 4, "gabled": 4, "hipped": 4, "t-element": 8}
         df_adjusted_roof_planewise = pd.DataFrame()
         adjusted_roof = pd.DataFrame()
         for id in self.roof_ids:
             if id == "182341061":
                 continue
-            # if id != "182448729":
-            #     continue
-            # if id != "182448729" and id != "21088358":
-            #     continue
-            print("Id", id)
 
             footprint = self.df_footprints.loc[self.df_footprints["roof_id"] == id].iloc[0]["footprint"]
             roof_type = self.df_footprints.loc[self.df_footprints["roof_id"] == id].iloc[0]["type"]
@@ -515,10 +464,9 @@ class Roofs:
             curr_intersection_points = self.df_intersection_with_segments.loc[self.df_intersection_with_segments["roof_id"] == id].iloc[0]
             min_z, max_z = find_global_min_max_z(curr_roof_plane)
 
-            footprint_points = update_polygon_points_with_footprint(curr_roof_plane, roof_type, curr_roof_poly, footprint, min_z, max_z)
+            footprint_points = update_polygon_points_with_footprint(curr_roof_plane, footprint, min_z, max_z)
             upper_points = find_upper_roof_points(curr_roof_poly)
             points_shifted_z_from_footprints = footprint_points
-            shifted_points = []
             new_polys = []
             if ids_points[roof_type] == len(points_shifted_z_from_footprints) and roof_type != "flat":
                 for i in range(len(curr_roof_poly["geometry"])):
@@ -544,7 +492,6 @@ class Roofs:
                                 curr_upper.append([check_distance(upper_points[l], curr_intersection_points["points"][f]), [l, f]])
 
                     curr_upper.sort(key=lambda x: x[0])
-                    print(curr_upper)
                     upper_to_use = []
                     if roof_type == "hipped" or roof_type == "corner_element":
                         for j, segments in enumerate(curr_intersection_points["segments"]):
@@ -569,7 +516,6 @@ class Roofs:
                                 distances.append([d, new_points[k], new_points[j]])
                     distances.sort(key=lambda x: x[0])
 
-                    # upper_to_use.append(new_points[0])
                     liste = new_points + upper_to_use
                     poly = MultiPoint(sort_points_clockwise(liste)).convex_hull
                     new_polys.append(poly)
@@ -584,8 +530,6 @@ class Roofs:
                         }
                     )
                     df_adjusted_roof_planewise = pd.concat([df_adjusted_roof_planewise, temp_df])
-                    # for p in curr_roof_poly.iloc[i]["geometry"].exterior.coords: print(p)
-
             else:
                 if roof_type == "flat": 
                     polygon = Polygon(footprint_points)
@@ -602,7 +546,6 @@ class Roofs:
                 else:
                     for idx, row in curr_roof_poly.iterrows():
                         seg = row["classification"]
-                        print("SEGMENT:", seg)
                         curr_upper = []
                         for f in range(len(curr_intersection_points["segments"])):
                             for l in range(len(upper_points)):
@@ -629,7 +572,6 @@ class Roofs:
                         current_coords = np.array(list(self.df_all_roofs.loc[self.df_all_roofs["roof_id"] == id].iloc[seg][1].exterior.coords))
                         liste = np.array([[c[0] for c in current_coords], [c[1] for c in current_coords], [c[2] for c in current_coords]])
                         min_x, max_x = min(liste[0]), max(liste[0])
-                        min_y, max_y = min(liste[1]), max(liste[1])
 
                         for r, corner_point in enumerate(footprint.exterior.coords[:-1]):
                             x, y = corner_point
@@ -637,26 +579,10 @@ class Roofs:
                             intersection_z = (-A * x - B * y - D) / C
 
                             if min_z < intersection_z < max_z and min_x - 2 < x < max_x + 2:
-                                new_point = [x, y, intersection_z]
+                                # new_point = [x, y, intersection_z]
+                                new_point = [x, y, min_z]
                                 footprint_points2.append(new_point)
-                                
-                        dist = []
-                        checked = set() 
-                        for k in range(len(footprint_points2)):
-                            for j in range(len(footprint_points2)):
-                                if (k,j) not in checked and (j,k) not in checked and k != j:
-                                    checked.add((k,j))
-                                    checked.add((j,k))
-                                    d = check_distance(footprint_points2[k], footprint_points2[j])
-                                    if d < 0.2:
-                                        dist.append(k)
 
-                        if len(dist) > 0:
-                            dist.sort(reverse=True)
-                            for index in dist:
-                                footprint_points2.pop(index)
-
-                        # print(min_z, max_z)
                         liste = footprint_points2 + upper_to_use
                         polygon = Polygon(sort_points_clockwise(liste))
                         new_polys.append(polygon)
@@ -671,13 +597,6 @@ class Roofs:
                         )
                         df_adjusted_roof_planewise = pd.concat([df_adjusted_roof_planewise, temp_df])
 
-                        # visualize_things2([polygon], footprint_points2, curr_roof_poly["geometry"], upper_to_use, id)
-
-                # Kanskje regne avstanden mellom hvert punkt for hver side og finne par av punkter som 
-                # burde "høre" sammen, kanskje det funker for flate hvert fall
-
-                        # visualize_things2(new_polys, footprint_points2, curr_roof_poly["geometry"], upper_to_use, id)
-
             df = pd.DataFrame({
                 "roof_id": id,
                 "roof_type": [roof_type],
@@ -691,24 +610,14 @@ class Roofs:
         self.adjusted_roof = gpd.GeoDataFrame(adjusted_roof)
         self.df_adjusted_roof_planewise = gpd.GeoDataFrame(df_adjusted_roof_planewise)
 
-        # for i in range(len(self.df_adjusted_roof_planewise)): print(self.df_adjusted_roof_planewise["roof_id"].iloc[i], self.df_adjusted_roof_planewise["upper_roof_top_points"].iloc[i])
-
     def create_building_walls(self):
         df_walls = pd.DataFrame()
-
         for id in self.roof_ids:
             if id == "182341061":
                 continue
-            print("Roof_id:", id)
-
-            # TROR JEG SKAL KLARE Å SKILLE UT SUBGABLES WALL DER DET OVERLAPPER MED MAIN GABLE WALL VED Å IKKE TA MED HVIS 
-            # VEGGEN VI FINNER ER INNEHOLDT I MAIN GABLE WALL ELLER NOE LIGNENDE 
-            
-            # MANGLER BARE 350 - gabled  --> DONE
-            # og sjekke hva som har skjedd 729 - cross
 
             curr_adjusted_roof = self.df_adjusted_roof_planewise.loc[self.df_adjusted_roof_planewise["roof_id"] == id]
-            # curr_footprint = self.df_footprints.loc[self.df_footprints["roof_id"] == id]["footprint"].iloc[0]
+
             curr_roof_plane = self.df_planes.loc[self.df_planes["roof_id"] == id]
             roof_type = self.adjusted_roof.loc[self.adjusted_roof["roof_id"] == id]["roof_type"].iloc[0]
             no_gables_roofs = ["flat", "hipped", "corner_element"]
@@ -728,65 +637,16 @@ class Roofs:
             else:
                 gables = []
 
-            min_z, max_z = find_global_min_max_z(curr_roof_plane)
-            # curr_footprint_with_z = [[p[0], p[1], min_z - 8] for p in curr_footprint.exterior.coords]
-
+            min_z, _ = find_global_min_max_z(curr_roof_plane)
             walls = []
-            # for i, segment in curr_adjusted_roof.iterrows(): 
-            if len(curr_adjusted_roof) > 0 and roof_type != "flat":
-                for i in range(len(curr_adjusted_roof)): 
-                    flattened_list = [sublist_2d for sublist_2d in curr_adjusted_roof["lower_roof_top_points"].iloc[i]]
-                    points_in_wall = []
-                    if i == 0: 
-                        item = flattened_list[1]
-                        flattened_list.pop(1)
-                        flattened_list.append(item)
-                    for curr_index in range(len(flattened_list) - 1):
-                        point1 = flattened_list[curr_index]
-                        point2 = flattened_list[curr_index + 1]
-
-                        new_point1 = [point1[0], point1[1], min_z - 8]
-                        new_point2 = [point2[0], point2[1], min_z - 8]
-                        point = [point1, new_point1, new_point2, point2]
-                        walls.append(Polygon(sort_points_clockwise(point)))
-
-
-                    # checked = set()
-                    # dist = []
-                    # for idx1 in range(len(flattened_list)):
-                    #     for idx2 in range(len(flattened_list)):
-                    #         if (idx1, idx2) not in checked and (idx2, idx1) not in checked and idx1 != idx2:
-                    #             checked.add((idx1, idx2))
-                    #             checked.add((idx2, idx1))
-                    #             dist.append([check_distance(flattened_list[idx1], flattened_list[idx2]), idx1, idx2])
-
-                    # dist.sort(key=lambda x: x[0])
-                    # if (dist[-1][1], dist[-1][2]) != (0, len(flattened_list)-1):
-                    #     endpoint1 = flattened_list[dist[-1][1]]
-                    #     endpoint2 = flattened_list[dist[-1][2]]
-
-                    #     # Define a custom sorting key based on the distance along the main line
-                    #     def distance_along_line(point):
-                    #         vector = np.array(endpoint2) - np.array(endpoint1)
-                    #         to_point = np.array(point) - np.array(endpoint1)
-                    #         distance = np.dot(to_point, vector) / np.dot(vector, vector)
-                    #         return distance
-
-                    #     flattened_list.sort(key=distance_along_line)
-
-                    # for curr_index in range(len(flattened_list) - 1):
-                    #     point1 = flattened_list[curr_index]
-                    #     point2 = flattened_list[curr_index + 1]
-
-                    #     new_point1 = [point1[0], point1[1], min_z - 8]
-                    #     new_point2 = [point2[0], point2[1], min_z - 8]
-                    #     point = [point1, new_point1, new_point2, point2]
-                    #     walls.append(Polygon(sort_points_clockwise(point)))
-
-                if len(gables) != 0: 
-                    for gable in gables:
+            if roof_type != "flat":
+                if len(gables) != 0:
+                    for num, gable in enumerate(gables):
                         flattened_list1 = [sublist_2d for sublist_2d in curr_adjusted_roof["lower_roof_top_points"].iloc[gable[0]]]
                         flattened_list2 = [sublist_2d for sublist_2d in curr_adjusted_roof["lower_roof_top_points"].iloc[gable[1]]]
+                        flattened_upper = [tuple(coord) for sublist in curr_adjusted_roof["upper_roof_top_points"] for coord in sublist]
+                        unique_coordinates = list(set(flattened_upper))
+
                         dist = []
                         checked = set()
                         for i, point1 in enumerate(flattened_list1):
@@ -795,17 +655,39 @@ class Roofs:
                                     checked.add((tuple(point1),tuple(point2)))
                                     checked.add((tuple(point2),tuple(point1)))
                                     dist.append([i, j, check_distance(point1, point2)])
-                        
                         dist.sort(key=lambda x: x[2], reverse=True)
-                        index1, index2, index3, index4 = dist[0][0], dist[0][1], dist[1][0], dist[1][1]
-                        points_in_wall = [flattened_list1[index1], [flattened_list1[index1][0], flattened_list1[index1][1], min_z -8], [flattened_list2[index4][0], flattened_list2[index4][1], min_z - 8], flattened_list2[index4]]
-                        walls.append(Polygon(sort_points_clockwise(points_in_wall)))
-                        points_in_wall = [flattened_list1[index3], [flattened_list1[index3][0], flattened_list1[index3][1], min_z -8], [flattened_list2[index2][0], flattened_list2[index2][1], min_z - 8], flattened_list2[index2]]
-                        walls.append(Polygon(sort_points_clockwise(points_in_wall)))
+                        indexes = [dist[0][0], dist[0][1], dist[1][0], dist[1][1]]
 
+                        poly1, poly2 = get_wall_polys(indexes, flattened_list1, flattened_list2, unique_coordinates, min_z)
+
+                        if num > 0:
+                            dist1 = walls[0].distance(poly1)
+                            dist2 = walls[0].distance(poly2)
+                            walls.append(poly1) if dist1 >= dist2 else walls.append(poly2)
+                        else:
+                            walls.append(poly1)
+                            walls.append(poly2)
+
+                df_exploded = curr_adjusted_roof.explode('lower_roof_top_points').reset_index(drop=True)
+                all_values = list(df_exploded['lower_roof_top_points'])
+                all_points = sort_points_clockwise(all_values)
+                valid_walls = []
+                for curr_index in range(len(all_points)):
+                    point1 = all_points[curr_index]
+                    if curr_index == len(all_points) - 1:
+                        point2 = all_points[0]
+                    else:
+                        point2 = all_points[curr_index + 1]
+                    new_point1 = [point1[0], point1[1], min_z - 8]
+                    new_point2 = [point2[0], point2[1], min_z - 8]
+                    point = [point1, new_point1, new_point2, point2]
+                    poly = Polygon(sort_points_clockwise(point))
+                    matching_coords = [does_poly_match(wall, poly) for wall in walls]
+                    if not any(matching_coords):
+                        valid_walls.append(poly)
+                for wall in valid_walls: walls.append(wall)
             else:
                 flattened_list = [sublist_2d for sublist_2d in curr_adjusted_roof.iloc[0]["lower_roof_top_points"]]
-                points_in_wall = []
                 for i in range(len(flattened_list) - 1):
                     point1 = flattened_list[i]
                     point2 = flattened_list[i + 1]
@@ -831,10 +713,9 @@ class Roofs:
                 "walls": [walls]
             })
             df_walls = pd.concat([df_walls, temp_df])
-            if len(curr_adjusted_roof) > 0: visualize_polygons3(walls, id, self.adjusted_roof.loc[self.adjusted_roof["roof_id"] == id]["geometry"].iloc[0])
-
         df_walls = df_walls.reset_index(drop=True)
         self.df_walls = gpd.GeoDataFrame(df_walls)
+
 
     def run_all(self, FOLDER):
         folder_names = os.listdir(FOLDER)
@@ -864,7 +745,6 @@ class Roofs:
         self.find_segments_to_match_intersection_point()
         self.find_polygons()
         self.find_relevant_buildings_for_modelling()
-        # VÆR OBS PÅ AT SEGMENTNUMBER (CLASSIFICATION) I DF_POLYGONS KANSKJE IKKE ER RIKTIG HVIS DET SKJER MYE RART SENERE
         self.match_footprints()
         self.create_building_walls()
 
@@ -872,49 +752,27 @@ class Roofs:
         match type:
             case "scatterplot_3d":
                 self.plot.scatterplot_3d()
-            case "segmented_roof_2d":
-                    self.plot.plot_2D()
             case "plane_3D":
-                for id in self.df_all_roofs.roof_id.unique():
-                    roof = self.df_planes.loc[self.df_planes["roof_id"] == id]
-                    self.plot.plane_3D(roof, id)
-            case "scatterplot_with_plane_3D_all":
-                self.plot.scatter_with_plane_3D_all(self.df_planes, self.roof_ids)
-            case "scatter_with_plane_3D_segments":
-                self.plot.scatter_with_plane_3D_segments(self.df_all_roofs, self.df_planes)
-            case "plane_with_intersections":
-                self.plot.plane_with_intersections(self.roof_ids, self.df_planes, self.df_lines)
-            case "intersections":
-                self.plot.plot_intersections(self.df_lines, self.roof_ids)
+                self.plot.plane_3D(self.roof_ids, self.df_planes, self.df_all_roofs)
             case "line_scatter":
                 self.plot.line_scatter(self.df_lines, self.roof_ids)
             case "line_scatter_intersection_points":
                 self.plot.line_scatter_intersection_points(self.df_lines, self.roof_ids, self.intersection_points)
+            case "roof_polygons":
+                self.plot.plot_roof_polygons(self.df_polygons, self.roof_ids, self.df_all_roofs)
             case "footprint_with_roof":
                 self.plot.plot_footprint_and_roof(self.df_footprints, self.df_polygons, self.roof_ids)
             case "plot_entire_roof":
                 self.plot.plot_entire_roof(self.df_walls, self.adjusted_roof, self.roof_ids, self.df_adjusted_roof_planewise, self)
-
 
 if __name__ == '__main__':
     roofs = Roofs()
     FOLDER = "laz_roofs"
     roofs.run_all(FOLDER)
     # roofs.plot_result("scatterplot_3d")
-    # roofs.plot_result("segmented_roof_2d")
     # roofs.plot_result("plane_3D")
-    # roofs.plot_result("scatterplot_with_plane_3D_all")
-    # roofs.plot_result("scatter_with_plane_3D_segments")
-    # roofs.plot_result("plane_with_intersections")
-    
-    # INTERSECTION LINES
-    # roofs.plot_result("intersections")
-
-    # SCATTER ALL, INTERSECTION LINES
     # roofs.plot_result("line_scatter")
-    # SCATTER ALL, INTERSECTION LINES AND INTERSECTION POINTS
     # roofs.plot_result("line_scatter_intersection_points")
-
+    # roofs.plot_result("roof_polygons")
     # roofs.plot_result("footprint_with_roof")
-
     roofs.plot_result("plot_entire_roof")
