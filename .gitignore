@@ -8,9 +8,7 @@ fkb_trondheim
 __pycache__
 Prog_i_geo.code-workspace
 main_notebook.ipynb
-old_plotters.py
-helpers_old.py
-main_old.py
+old
 
 # Compiled source #
 ###################

@@ -232,6 +232,7 @@ class Plot:
             curr_poly = df_polygon.loc[df_polygon["roof_id"] == id]["geometry"].iloc[0]
 
             curr_poly = roof_obj.adjusted_roof.loc[roof_obj.adjusted_roof["roof_id"] == id]["geometry"].iloc[0]
+            roof_type = roof_obj.df_footprints.loc[roof_obj.df_footprints["roof_id"] == id]["type"].iloc[0]
 
             if len(curr_poly) == 0:
                 polygon = df_adjusted_roof_planewise.loc[df_adjusted_roof_planewise["roof_id"] == id]["lower_roof_top_points"].iloc[0]
@@ -284,11 +285,11 @@ class Plot:
             ax.set_zlim([min(zmins) - 10, max(zmaxs) + 1])
 
             plt.title(id)
-            # if not os.path.exists("./plots/entire_roof"):
-            #     os.mkdir("./plots/entire_roof")
-            # plt.savefig(f"./plots/entire_roof/{roof_type}_{id}.png", bbox_inches='tight')
+            if not os.path.exists("./plots/entire_roof"):
+                os.mkdir("./plots/entire_roof")
+            plt.savefig(f"./plots/entire_roof/{roof_type}_{id}.png", bbox_inches='tight')
 
-            plt.show()
+            # plt.show()
 
 
     def plot_entire_roof2(self, df_walls, df_polygon, roof_ids, df_adjusted_roof_planewise, roof_obj):
@@ -301,6 +302,7 @@ class Plot:
             ymins, ymaxs = [], []
             zmins, zmaxs = [], []
             curr_poly = df_polygon
+            roof_type = roof_obj.df_footprints.loc[roof_obj.df_footprints["roof_id"] == id]["type"].iloc[0]
             if len(curr_poly) == 0:
                 polygon = df_adjusted_roof_planewise.loc[df_adjusted_roof_planewise["roof_id"] == id]["lower_roof_top_points"].iloc[0]
                 roof_3d = [(x, y, z) for x, y, z in polygon]
@@ -352,9 +354,9 @@ class Plot:
             ax.set_zlim([min(zmins) - 10, max(zmaxs) + 1])
 
             plt.title(id)
-            # if not os.path.exists("./plots/entire_roof"):
-            #     os.mkdir("./plots/entire_roof")
-            # plt.savefig(f"./plots/entire_roof/{roof_type}_{id}.png", bbox_inches='tight')
+            if not os.path.exists("./plots/entire_roof"):
+                os.mkdir("./plots/entire_roof")
+            plt.savefig(f"./plots/entire_roof/{roof_type}_{id}.png", bbox_inches='tight')
 
-            plt.show()
+            # plt.show()
 
